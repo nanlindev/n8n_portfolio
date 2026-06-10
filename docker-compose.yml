@@ -25,8 +25,8 @@ services:
     image: n8nio/n8n
     container_name: n8n_app
     restart: always
-    ports:
-      - "5678:5678"
+    # ports:
+    #   - "5678:5678"
     env_file:
       - .env
     environment:
