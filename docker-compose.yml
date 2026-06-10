@@ -42,6 +42,8 @@ services:
         condition: service_healthy
     volumes:
       - n8n_data:/home/node/.n8n
+    networks:
+      - proxy_network
 
   # Python AI 处理服务
   python-ai-service:
@@ -62,7 +64,13 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      - proxy_network
 
 volumes:
   postgres_data:
   n8n_data:
+
+networks:
+  proxy_network:
+    external: true
