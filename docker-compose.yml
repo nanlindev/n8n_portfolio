@@ -19,6 +19,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - proxy_network
 
   # n8n 自动化服务
   n8n:
