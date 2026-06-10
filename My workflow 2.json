@@ -1,0 +1,462 @@
+{
+  "name": "My workflow 2",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyX",
+              "value": 5,
+              "unit": "minutes"
+            }
+          ]
+        },
+        "feedUrl": "https://hnrss.org/newest"
+      },
+      "type": "n8n-nodes-base.rssFeedReadTrigger",
+      "typeVersion": 1,
+      "position": [
+        -304,
+        -80
+      ],
+      "id": "17e60de9-8e6d-49a2-a279-1ff41b1f8073",
+      "name": "RSS Feed Trigger"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://python-ai-service:8001/analyze",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "title",
+              "value": "={{ $('RSS Feed Trigger').item.json.title }}"
+            },
+            {
+              "name": "content",
+              "value": "={{ $('RSS Feed Trigger').item.json.content || $('RSS Feed Trigger').item.json.contentSnippet}}"
+            },
+            {
+              "name": "source_url",
+              "value": "={{ $('RSS Feed Trigger').item.json.link }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        368,
+        16
+      ],
+      "id": "c4454abc-4b2d-4104-b649-455f2db7e8c4",
+      "name": "HTTP Request",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "smart_leads",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "source_url": "={{ $('RSS Feed Trigger').item.json.link }}",
+            "title": "={{ $('RSS Feed Trigger').item.json.title }}",
+            "raw_content": "={{ $('RSS Feed Trigger').item.json.content }}",
+            "category_key": "={{ $json.category_key }}",
+            "analysis_result": "={{ JSON.stringify($json) }}",
+            "sentiment": "={{ $json.sentiment }}",
+            "priority": "={{ $json.priority }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "source_url",
+              "displayName": "source_url",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "raw_content",
+              "displayName": "raw_content",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "analysis_result",
+              "displayName": "analysis_result",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "object",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "category_key",
+              "displayName": "category_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sentiment",
+              "displayName": "sentiment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "priority",
+              "displayName": "priority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        592,
+        16
+      ],
+      "id": "473d38b1-63bf-4bc1-bb7e-4427609f5e80",
+      "name": "Insert rows in a table",
+      "credentials": {
+        "postgres": {
+          "id": "7WScnOVWInmsE9M6",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT EXISTS(SELECT 1 FROM smart_leads WHERE source_url = '{{ $json.link }}')",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -80,
+        -80
+      ],
+      "id": "5eaede02-b1e9-402a-b418-aa4d19e3f0cf",
+      "name": "Execute a SQL query",
+      "credentials": {
+        "postgres": {
+          "id": "7WScnOVWInmsE9M6",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "9bde4a42-df07-4984-9955-ce2a669d9a55",
+              "leftValue": "={{ $json.exists }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        144,
+        -80
+      ],
+      "id": "30759d49-d09c-41f0-85cd-55e3a0e8790a",
+      "name": "If"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        368,
+        -176
+      ],
+      "id": "91ed2a86-0841-4119-aefe-c161e63ec39c",
+      "name": "No Operation, do nothing"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "0952dcbf-950c-4a76-99a5-d4d4f620997b",
+              "leftValue": "={{ $('HTTP Request').item.json.priority }}",
+              "rightValue": "high",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        816,
+        16
+      ],
+      "id": "6c43bfc6-082f-40de-99a3-ef0e1e4d7d08",
+      "name": "If1"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1024,
+        240
+      ],
+      "id": "5c22bbc8-fd40-4d7a-8bba-2c588e7c13df",
+      "name": "No Operation, do nothing1"
+    },
+    {
+      "parameters": {
+        "authentication": "webhook",
+        "content": "=🚀 **High Priority Lead Detected!**\n\n**Title:** {{ $json.title }}\n**Category:** {{ $json.analysis_result.category_display.en }} ({{ $json.category_key }})\n**Sentiment:** {{ $json.sentiment }}\n\n**Summary (CN):**\n{{ $json.analysis_result.summary.en }}\n\n🔗 [Read Original]({{ $json.source_url }})",
+        "options": {
+          "username": "AI Analyst"
+        }
+      },
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        1024,
+        16
+      ],
+      "id": "b15eb5a1-784a-4234-af58-865e51564927",
+      "name": "Discord",
+      "webhookId": "b11f5245-a0ee-49a6-a0ea-abcf380b8228",
+      "credentials": {
+        "discordWebhookApi": {
+          "id": "VziSjfoFuZUrjjKo",
+          "name": "Discord Webhook account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "8611002456",
+        "text": "=🔔 *High Priority Alert*  *Title:* {{ $json.title }} *Category:* {{ $json.analysis_result.category_display.en }} *Priority:* {{ $json.priority }}  _Summary:_ {{ $json.analysis_result.summary.en }}  [View Source]({{ $json.source_url }})",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1024,
+        -176
+      ],
+      "id": "a19d93d4-9fc0-4c3c-8f06-e02106de92fd",
+      "name": "Send a text message",
+      "webhookId": "2b104aaa-a941-43ee-ae26-17aafcaaefd6",
+      "alwaysOutputData": false,
+      "executeOnce": false,
+      "retryOnFail": false,
+      "credentials": {
+        "telegramApi": {
+          "id": "Tjm8swzkVf7eiW4d",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "RSS Feed Trigger": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Insert rows in a table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert rows in a table": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Discord",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a text message": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "738e795b-31b5-4d1a-888d-bf4148eb9c39",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "3d2acfc32533257c8703bb7d95952f32c36f321e22eb7e96d47ff28ef5b61f62"
+  },
+  "id": "njuuOMoGypGVGVfr",
+  "tags": []
+}

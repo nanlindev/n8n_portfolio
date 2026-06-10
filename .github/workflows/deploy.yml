@@ -1,0 +1,100 @@
+name: Deploy to Server
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  PYTHON_IMAGE_NAME: ghcr.io/nanlindev/n8n_portfolio/python-ai-service
+
+jobs:
+  build-and-push-python:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Python Service
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.PYTHON_IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=
+            type=ref,event=branch
+            latest
+
+      - name: Build and push Python AI Service image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./python-service
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build-and-push-python
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+
+    steps:
+      - name: Deploy to Server via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: deploy
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            # 1. 登录 GHCR
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u nanlindev --password-stdin
+            
+            # 2. 进入项目目录
+            cd /home/deploy/projects/n8n_portfolio
+            
+            # 3. 拉取最新代码
+            git pull origin main
+            
+            # 4. 确保 .env 文件存在且权限正确 (可选，如果.env不在git里)
+            # chmod 600 .env
+            
+            # 5. 拉取最新的 Python 服务镜像
+            docker pull ${{ env.PYTHON_IMAGE_NAME }}:latest
+            
+            # 6. 重新构建并启动所有服务
+            # 由于 python-ai-service 改用了 image，这里不需要 --build，直接 up 即可
+            docker compose up -d
+            
+            # 7. 清理未使用的镜像
+            docker image prune -f
+            
+            # 8. 登出
+            docker logout ghcr.io
+
+      - name: Notify deployment status
+        if: always()
+        run: |
+          if [ ${{ job.status }} == 'success' ]; then
+            echo "✅ Deployment successful!"
+          else
+            echo "❌ Deployment failed!"
+            exit 1
+          fi
