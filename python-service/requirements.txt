@@ -5,3 +5,7 @@ openai
 asyncpg
 python-dotenv
 httpx
+
+opentelemetry-distro>=0.50b0
+opentelemetry-exporter-otlp>=1.27.0
+opentelemetry-instrumentation-openai>=0.37b0

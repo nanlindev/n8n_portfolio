@@ -1,8 +1,7 @@
 services:
   # 数据库服务 (PostgreSQL)
-  postgres:
+  n8n_postgres:
     image: postgres:16-alpine
-    container_name: n8n_postgres
     restart: always
     env_file:
       - .env
@@ -20,38 +19,52 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - proxy_network
+      - main_network
 
   # n8n 自动化服务
-  n8n:
+  n8n_app:
     image: n8nio/n8n
-    container_name: n8n_app
     restart: always
-    # ports:
-    #   - "5678:5678"
     env_file:
       - .env
     environment:
+      # ... existing DB configs ...
       - DB_TYPE=postgresdb
-      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_HOST=n8n_postgres
       - DB_POSTGRESDB_PORT=5432
       - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
       - DB_POSTGRESDB_USER=${POSTGRES_USER}
       - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
       - N8N_BASIC_AUTH_ACTIVE=false
+
+      - HTTP_PROXY=${HTTP_PROXY}
+      - HTTPS_PROXY=${HTTPS_PROXY}
+      - NO_PROXY=${NO_PROXY}
+      # --- 监控配置 (指向监控项目的容器名) ---
+      - N8N_OTEL_ENABLED=true
+      - N8N_OTEL_EXPORTER_SERVICE_NAME=n8n-rss-workflow
+      - N8N_OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      # 🌟 强制使用 Batch 处理器，防止在流量小的时候数据积压在内存里不发
+      - N8N_OTEL_TRACE_PROCESSOR=batch
+      # 🌟 强制日志级别，确保报错能露出来
+      - N8N_LOG_LEVEL=debug
+      - N8N_DIAGNOSTICS_ENABLED=false
+    ports:
+      - "5678:5678"
+    cap_add:
+      - NET_ADMIN
     depends_on:
-      postgres:
+      n8n_postgres:
         condition: service_healthy
     volumes:
       - n8n_data:/home/node/.n8n
     networks:
+      - main_network
       - proxy_network
 
   # Python AI 处理服务
-  python-ai-service:
-    # Deleted:build: ./python-service
+  n8n_python_ai:
     image: ghcr.io/nanlindev/n8n_portfolio/python-ai-service:latest
-    container_name: n8n_python_ai
     restart: always
     env_file:
       - .env
@@ -59,20 +72,30 @@ services:
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
       - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
       - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-v4-flash}
+
+      # --- 监控配置 ---
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_SERVICE_NAME=n8n-rss-ai-service
+      # --- 新增加：开启 LLM 内容捕获（可选，用于 Langfuse 深度分析）---
+      - OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true
+      # 添加 gen_ai 相关资源属性，帮助 Langfuse 识别
+      - OTEL_RESOURCE_ATTRIBUTES=gen_ai.system=deepseek
     ports:
       - "8001:8001"
-    # Deleted:volumes:
-    # Deleted:- ./python-service:/app
     depends_on:
-      postgres:
+      n8n_postgres:
         condition: service_healthy
     networks:
-      - proxy_network
+      - main_network
 
 volumes:
   postgres_data:
   n8n_data:
 
 networks:
+  main_network:
+    driver: bridge
   proxy_network:
     external: true

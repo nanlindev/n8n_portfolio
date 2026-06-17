@@ -12,4 +12,5 @@ COPY . .
 
 EXPOSE 8001
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
+# 修改这里：使用 opentelemetry-instrument 包装 uvicorn
+CMD ["opentelemetry-instrument", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
