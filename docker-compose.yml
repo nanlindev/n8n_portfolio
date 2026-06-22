@@ -78,10 +78,14 @@ services:
       - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - OTEL_SERVICE_NAME=n8n-rss-ai-service
-      # --- 新增加：开启 LLM 内容捕获（可选，用于 Langfuse 深度分析）---
+      - OTEL_SERVICE_VERSION=v2.0
+
+      # --- LLM 内容捕获（让 Input / Output 完全捕获文本） ---
       - OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true
-      # 添加 gen_ai 相关资源属性，帮助 Langfuse 识别
-      - OTEL_RESOURCE_ATTRIBUTES=gen_ai.system=deepseek
+      - OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT=true
+
+      # --- 核心：多属性合并为唯一一行，用逗号严格隔开（解决覆盖问题） ---
+      - OTEL_RESOURCE_ATTRIBUTES=deployment.environment=development,service.name=n8n-rss-ai-service,host.name=my-server-01,gen_ai.system=deepseek,tags=rss-filter,langfuse.tags=rss-filter
     ports:
       - "8001:8001"
     depends_on:
@@ -89,6 +93,7 @@ services:
         condition: service_healthy
     networks:
       - main_network
+      - proxy_network
 
 volumes:
   postgres_data:
