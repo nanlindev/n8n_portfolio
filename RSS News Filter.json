@@ -3,58 +3,47 @@
   "nodes": [
     {
       "parameters": {
-        "pollTimes": {
-          "item": [
-            {
-              "mode": "everyX",
-              "value": 5,
-              "unit": "minutes"
-            }
-          ]
-        },
-        "feedUrl": "https://hnrss.org/newest"
-      },
-      "type": "n8n-nodes-base.rssFeedReadTrigger",
-      "typeVersion": 1,
-      "position": [
-        -304,
-        -80
-      ],
-      "id": "17e60de9-8e6d-49a2-a279-1ff41b1f8073",
-      "name": "RSS Feed Trigger"
-    },
-    {
-      "parameters": {
         "method": "POST",
-        "url": "http://python-ai-service:8001/analyze",
+        "url": "http://n8n_python_ai:8001/analyze",
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
             {
               "name": "title",
-              "value": "={{ $('RSS Feed Trigger').item.json.title }}"
+              "value": "={{ $('RSS Data Cleaner').item.json.title }}"
             },
             {
               "name": "content",
-              "value": "={{ $('RSS Feed Trigger').item.json.content || $('RSS Feed Trigger').item.json.contentSnippet}}"
+              "value": "={{ $('RSS Data Cleaner').item.json.content.substring(0, 3000) }}"
             },
             {
               "name": "source_url",
-              "value": "={{ $('RSS Feed Trigger').item.json.link }}"
+              "value": "={{ $('RSS Data Cleaner').item.json.url }}"
             }
           ]
         },
-        "options": {}
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 2000
+            }
+          },
+          "timeout": 30000
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        368,
-        16
+        1088,
+        48
       ],
       "id": "c4454abc-4b2d-4104-b649-455f2db7e8c4",
       "name": "HTTP Request",
-      "alwaysOutputData": false
+      "alwaysOutputData": false,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
@@ -71,13 +60,15 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "source_url": "={{ $('RSS Feed Trigger').item.json.link }}",
-            "title": "={{ $('RSS Feed Trigger').item.json.title }}",
-            "raw_content": "={{ $('RSS Feed Trigger').item.json.content }}",
+            "source_url": "={{ $json.source_url }}",
+            "title": "={{ $json.title }}",
+            "raw_content": "={{ $json.content }}",
             "category_key": "={{ $json.category_key }}",
-            "analysis_result": "={{ JSON.stringify($json) }}",
+            "analysis_result": "={{ JSON.stringify($json.analysis_raw) }}",
             "sentiment": "={{ $json.sentiment }}",
-            "priority": "={{ $json.priority }}"
+            "priority": "={{ $json.priority }}",
+            "created_at": "={{ $now }}",
+            "updated_at": "={{ $now }}"
           },
           "matchingColumns": [
             "id"
@@ -183,8 +174,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        592,
-        16
+        1984,
+        48
       ],
       "id": "473d38b1-63bf-4bc1-bb7e-4427609f5e80",
       "name": "Insert rows in a table",
@@ -193,28 +184,8 @@
           "id": "7WScnOVWInmsE9M6",
           "name": "Postgres account"
         }
-      }
-    },
-    {
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "SELECT EXISTS(SELECT 1 FROM smart_leads WHERE source_url = '{{ $json.link }}')",
-        "options": {}
       },
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [
-        -80,
-        -80
-      ],
-      "id": "5eaede02-b1e9-402a-b418-aa4d19e3f0cf",
-      "name": "Execute a SQL query",
-      "credentials": {
-        "postgres": {
-          "id": "7WScnOVWInmsE9M6",
-          "name": "Postgres account"
-        }
-      }
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
@@ -228,7 +199,7 @@
           "conditions": [
             {
               "id": "9bde4a42-df07-4984-9955-ce2a669d9a55",
-              "leftValue": "={{ $json.exists }}",
+              "leftValue": "={{ $('Check Duplicate').item.json.exists }}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -243,8 +214,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        144,
-        -80
+        864,
+        -48
       ],
       "id": "30759d49-d09c-41f0-85cd-55e3a0e8790a",
       "name": "If"
@@ -254,11 +225,299 @@
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        368,
-        -176
+        1088,
+        -144
       ],
       "id": "91ed2a86-0841-4119-aefe-c161e63ec39c",
       "name": "No Operation, do nothing"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2880,
+        -48
+      ],
+      "id": "5c22bbc8-fd40-4d7a-8bba-2c588e7c13df",
+      "name": "No Operation, do nothing1"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 1. 获取当前进入失败分支的单条数据（由 HTTP Request 的 Error 分支传入）\nconst currentItem = $json;\n\n// 2. 获取对应的原始 RSS 数据\nlet rssData = {};\ntry {\n    rssData = $('RSS Data Cleaner').item.json;\n} catch (e) {\n    // 🛡️ 极端防崩：万一获取前驱节点失败，用当前节点兜底\n    rssData = currentItem;\n}\n\n// 3. 生成完美的降级/报错数据结构，把下游可能访问的字段全部“垫平”\nreturn {\n    source_url: rssData.url || rssData.source_url || '',\n    title: rssData.title || 'Untitled News',\n    content: rssData.content || '',\n    category_key: 'error_requires_review', // 标记需要人工审核\n    sentiment: 'unknown',\n    priority: 'low', // 降级数据默认给低优先级，防止误触发通知\n\n    // 💡 核心：完美补齐下游分类和入库节点需要的完整树状结构\n    analysis_result: {\n        error: currentItem.message || currentItem.error || 'AI service unavailable or timeout',\n        requires_manual_review: true,\n        timestamp: new Date().toISOString(),\n        fallback_mode: true,\n        \n        // 🧱 给下游垫背，防止读取 .zh 或 .en 时报 undefined 崩溃\n        category_display: {\n            en: 'Error Review',\n            zh: '待人工审核'\n        },\n        summary: {\n            en: 'AI generation failed. Raw content preserved for manual review.',\n            zh: 'AI 摘要生成失败。原始文本已保留，等待人工排查。'\n        },\n        tags: []\n    }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1536,
+        144
+      ],
+      "id": "af2e7c3f-a321-4157-ad81-d507255c0520",
+      "name": "Handle AI Failure"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const rssData = $json;\n\n// 3. 验证必填字段\nif (!rssData.title || !rssData.url) {\n    throw new Error('Missing required RSS fields: title or url');\n}\n\n// 4. 初始化默认值\nlet analysisResult = {};\nlet sentiment = 'unknown';\nlet priority = 'low';\nlet categoryKey = 'uncategorized';\nlet aiSuccess = false;\n\n// 5. 验证 AI 响应并提取字段\nif (rssData && Object.keys(rssData).length > 0) {\n    try {\n        analysisResult = rssData;\n        \n        // 验证并标准化 sentiment\n        if (analysisResult.sentiment) {\n            const validSentiments = ['positive', 'negative', 'neutral'];\n            const lowerSentiment = analysisResult.sentiment.toLowerCase();\n            sentiment = validSentiments.includes(lowerSentiment) ? lowerSentiment : 'neutral';\n        }\n        \n        // 验证并标准化 priority\n        if (analysisResult.priority) {\n            const validPriorities = ['high', 'medium', 'low'];\n            const lowerPriority = analysisResult.priority.toLowerCase();\n            priority = validPriorities.includes(lowerPriority) ? lowerPriority : 'low';\n        }\n        \n        // 获取 category_key\n        if (analysisResult.category_key) {\n            categoryKey = String(analysisResult.category_key);\n        }\n        \n        aiSuccess = true;\n    } catch (validationError) {\n        // 验证失败，标记为需要人工审核\n        analysisResult = {\n            error: `Validation failed: ${validationError.message}`,\n            requires_manual_review: true,\n            original_response: rssData,\n            timestamp: new Date().toISOString()\n        };\n    }\n}\n\n// 6. 重新拼装吐给下游（数据库/通知）的完整合规数据\nreturn {\n    title: rssData.title,\n    content: rssData.content || '',\n    source_url: rssData.url,\n    ai_success: aiSuccess,\n    analysis_raw: {\n      'category_key' : analysisResult.category_key,\n      'category_display' : analysisResult.category_display,\n      'summary' : analysisResult.summary,\n      'sentiment' : analysisResult.sentiment,\n      'tags' : analysisResult.tags,\n      'priority' : analysisResult.priority,\n    }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1536,
+        -48
+      ],
+      "id": "3eb5b78a-e111-4cdf-bcd5-e434427cd47c",
+      "name": "Validate & Transform Data"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 1. 获取当前进入数据库失败分支的单条数据\n// 在 Run for Each Item 模式下，$json 直接就是当前这条失败数据的完整内容\nconst failedItem = $json;\n\n// 2. 尝试从前驱节点抓取真实的数据库报错原因\n// n8n 在节点报错进入 Error 分支时，通常会在数据里注入 error 对象\nconst errorMsg = failedItem.error?.message || 'Unknown database error';\nconst errorNode = failedItem.error?.nodeName || 'Insert rows in a table';\n\n// 3. 直接返回平铺的对象，不要在外层套 json: {}\nreturn {\n    ...failedItem,\n    error_type: 'database_insertion_failed',\n    error_message: errorMsg,\n    error_node: errorNode,\n    retry_needed: true,\n    failed_at: new Date().toISOString(),\n    \n    // 监控元数据\n    _metadata: {\n        processing_stage: 'db_error_handled',\n        severity: 'high',\n        requires_immediate_attention: true\n    }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2208,
+        144
+      ],
+      "id": "2b66ab5f-ebc3-4396-865b-4911dbf0ff1a",
+      "name": "Handle DB Error"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e0f6bca9-23ed-452f-9656-f04e006f8a5f",
+              "name": "processing_status",
+              "value": "success",
+              "type": "string"
+            },
+            {
+              "id": "9400e406-4c9d-4de1-9cda-d78224cb734b",
+              "name": "stored_at",
+              "value": "={{ $now }}",
+              "type": "string"
+            },
+            {
+              "id": "975f507a-6257-49e1-9796-0fe2d95e3cbc",
+              "name": "_metadata.processing_stage",
+              "value": "database_stored",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2208,
+        -48
+      ],
+      "id": "024e9b9e-3f74-456e-a9de-4c58e801b880",
+      "name": "Add Processing Metadata"
+    },
+    {
+      "parameters": {
+        "authentication": "webhook",
+        "content": "=🚀 **High Priority Lead Detected!**\n\n**Title:** {{ $json.title }}\n**Category:** {{ $json.analysis_result.category_display.en }} ({{ $json.category_key }})\n**Sentiment:** {{ $json.sentiment }}\n\n**Summary:** {{ $json.analysis_result.summary.en }}\n\n🔗 [Read Original]({{ $json.source_url }})",
+        "options": {
+          "username": "AI Analyst"
+        },
+        "embeds": {
+          "values": []
+        }
+      },
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        3104,
+        48
+      ],
+      "id": "b15eb5a1-784a-4234-af58-865e51564927",
+      "name": "Notify Discord Team",
+      "webhookId": "b11f5245-a0ee-49a6-a0ea-abcf380b8228",
+      "retryOnFail": true,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "discordWebhookApi": {
+          "id": "VziSjfoFuZUrjjKo",
+          "name": "Discord Webhook account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Global Config').first().json.telegram_chat_id }}",
+        "text": "=🔔 *新文章通知*\n\n📌 *标题*: {{ $json.title }}\n🗂️ *分类*: {{ $json.analysis_result.category_display.zh }}\n⚡ *优先级*: {{ $json.priority }}\n\n📝 *AI 摘要*: \n{{ $json.analysis_result.summary.zh }}\n\n🔗 [阅读原文]({{ $json.source_url }})",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3104,
+        -336
+      ],
+      "id": "a19d93d4-9fc0-4c3c-8f06-e02106de92fd",
+      "name": "Notify Telegram",
+      "webhookId": "2b104aaa-a941-43ee-ae26-17aafcaaefd6",
+      "alwaysOutputData": false,
+      "executeOnce": false,
+      "retryOnFail": true,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "telegramApi": {
+          "id": "Tjm8swzkVf7eiW4d",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 1. 获取当前进入 Telegram 错误分支的单条失败数据\n// 在 Run for Each Item 模式下，$json 直接就是当前这条失败数据的完整内容\nconst failedItem = $json;\n\n// 2. 尝试从前驱节点抓取真实的 Telegram 报错原因\n// n8n 节点报错进入 Error 分支时，通常会在数据里注入 error 对象\nconst errorMsg = failedItem.error?.message || 'Telegram API injection or network error';\n\n// 3. 直接返回平铺的对象，不要在外层套 json: {}\nreturn {\n    ...failedItem,\n    error_type: 'telegram_notification_failed',\n    error_message: errorMsg,\n    failed_at: new Date().toISOString(),\n    \n    // 监控元数据，方便下游的 Global Error Logger 汇总分类\n    _metadata: {\n        processing_stage: 'telegram_error_handled',\n        severity: 'low', // 通知失败属于低级或中级监控，不影响核心数据库\n        can_retry: true\n    }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3328,
+        -336
+      ],
+      "id": "e451b0d0-9e7b-49d4-ab88-f7b0320bc190",
+      "name": "Log Telegram Error",
+      "retryOnFail": false
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 1. 获取当前进入 Discord 错误分支的单条失败数据\nconst failedItem = $json;\n\n// 2. 🧠 智能兼容处理：防御 n8n 将 error 变成纯字符串的隐藏 Bug\nlet errorMsg = 'Discord Webhook limit or connection error';\n\nif (failedItem.error) {\n    if (typeof failedItem.error === 'string') {\n        // 如果 error 本身就是字符串，直接拿来用\n        errorMsg = failedItem.error;\n    } else if (typeof failedItem.error === 'object') {\n        // 如果 error 是个对象，再安全地取它的 message 或 description\n        errorMsg = failedItem.error.message || failedItem.error.description || JSON.stringify(failedItem.error);\n    }\n}\n\n// 3. 直接返回平铺的对象\nreturn {\n    ...failedItem,\n    error_type: 'discord_notification_failed',\n    error_message: errorMsg,\n    failed_at: new Date().toISOString(),\n    \n    // 监控元数据\n    _metadata: {\n        processing_stage: 'discord_error_handled',\n        severity: 'low',\n        can_retry: true\n    }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3328,
+        48
+      ],
+      "id": "77d1beeb-98d9-419d-a85c-37fc5af125a3",
+      "name": "Log Discord Error"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, name, feed_url FROM rss_sources WHERE is_active = true;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -480,
+        -48
+      ],
+      "id": "934115f3-76bf-4522-ae1f-ab16fef9102f",
+      "name": "Get Active RSS Sources",
+      "credentials": {
+        "postgres": {
+          "id": "7WScnOVWInmsE9M6",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 20
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -928,
+        -48
+      ],
+      "id": "3a9a64b8-c4bc-4d14-827d-cbf1bc8937f1",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 1. 获取当前正在处理的单篇新闻数据（由前驱节点传入）\nconst article = $json;\n\n// 2. 强行拉取所有分类规则\n// 不管前面的节点怎么变，用 $('节点名').all() 可以把规则库里的所有规则一股脑全拿出来\nlet rules = [];\ntry {\n    rules = $('Load Classification Rules').all().map(item => item.json);\n} catch (e) {\n    // 兜底：如果没捞到规则，保持原样输出\n    rules = [];\n}\n\n// 3. 将当前文章的标题和内容转为小写，用于关键词匹配\nconst title = (article.title || '').toLowerCase();\nconst content = (article.content || '').toLowerCase(); // 修正为真实的字段名 content\nconst textToMatch = `${title} ${content}`;\n\nlet matchedRule = null;\n\n// 4. 遍历规则，找到第一个匹配的规则\nfor (const rule of rules) {\n    const keywords = rule.keywords || [];\n    // 检查是否有任意一个关键词被文章包含\n    const hasMatch = keywords.some(keyword => textToMatch.includes(keyword.toLowerCase()));\n    \n    if (hasMatch) {\n        matchedRule = rule;\n        break; // 找到第一个匹配就停止\n    }\n}\n\n// 5. 初始化最终输出的分类和优先级（默认继承 AI 的分析结果）\nlet finalCategory = article.analysis_raw.category_key;\nlet finalPriority = article.analysis_raw.priority;\n\n// 6. 如果触发了本地规则，强行覆盖 AI 的判断（本地规则权重更高）\nif (matchedRule) {\n    finalCategory = matchedRule.category_key;\n    if (matchedRule.priority_override) {\n        finalPriority = matchedRule.priority_override;\n    }\n}\n\n// 7. 返回组装好的新数据，并注入规则引擎的元数据\nreturn {\n    ...article,\n    category_key: finalCategory,\n    priority: finalPriority,\n    sentiment: article.analysis_raw.sentiment,\n    _metadata: {\n        classification_source: matchedRule ? 'rule_engine' : 'ai_only',\n        matched_rule_name: matchedRule ? matchedRule.rule_name : null\n    }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        48
+      ],
+      "id": "0d74ceab-b01e-41a0-ae35-cd14af584786",
+      "name": "Apply Classification Rules"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, rule_name, keywords, category_key, priority_override \nFROM classification_rules \nWHERE is_active = true;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -480,
+        192
+      ],
+      "id": "f0b2e651-67cb-4ea9-895a-52624cf92b37",
+      "name": "Load Classification Rules",
+      "credentials": {
+        "postgres": {
+          "id": "7WScnOVWInmsE9M6",
+          "name": "Postgres account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT setting_key, setting_value FROM notification_settings;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -480,
+        -304
+      ],
+      "id": "f0fe23f4-d1a8-4b2b-a2c9-0e47dbbec531",
+      "name": "Load Notification Settings",
+      "credentials": {
+        "postgres": {
+          "id": "7WScnOVWInmsE9M6",
+          "name": "Postgres account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 1. 获取当前循环处理的单条新闻\nconst item = $json; \n\n// 2. 初始化配置对象\nlet config = {};\nlet configLoadedSuccessfully = true;\n\ntry {\n    // 💡 彻底干掉报错的 $item！\n    // 在 2.22.9 版本的 JS 函数体内，直接通过原生内置方法获取上游节点\n    // 为了防止 n8n 引擎在循环第 2 条（Index 1）时由于 Paired Item 找不到对应的配置，\n    // 我们直接尝试强行访问其底层的全量执行上下文数据\n    const targetNode = $(\"Load Notification Settings\").all();\n    // 用普通的 JS 循环和逻辑来兼容 n8n 的底层多行行集\n    if (targetNode) {\n        // 如果能直接拿到（第一轮循环），直接提取\n        // 如果由于索引问题返回空，在下面的 catch 块里直接触发安全线兜底\n        let settingsItems = [];\n        settingsItems = targetNode\n      \n        if (settingsItems.length > 0) {\n            settingsItems.forEach(i => {\n                const dataObj = i.json || i;\n                if (dataObj && dataObj.setting_key) {\n                    config[dataObj.setting_key] = dataObj.setting_value;\n                }\n            });\n        } else {\n            // 触发内部无法对齐时的降级\n            throw new Error(\"Paired item index out of bounds\");\n        }\n    } else {\n        throw new Error(\"Node not found\");\n    }\n} catch (e) {\n    // 🛡️ 超强硬核兜底：由于 2.22.9 在循环里读取跨节点配置极其容易触发 Paired Item 机制卡死，\n    // 一旦捕获到任何“找不到属性/索引不对”的错误，立刻启用默认配置！\n    // 这样 18 条新闻在循环到第 2 到第 18 条时，能全部畅通无阻地通过，绝对不报红！\n    config = { \n        enabled_channels: ['telegram', 'discord'], \n        notify_priorities: ['high', 'medium', 'low'] \n    };\n    configLoadedSuccessfully = false;\n}\n\n// 3. 提取配置\nconst enabledChannels = config.enabled_channels || [];\nconst notifyPriorities = config.notify_priorities || [];\n\n// 4. 判断当前文章的优先级是否命中通知配置\nconst isPriorityMatch = notifyPriorities.includes(item.priority);\nlet shouldNotify = false;\nlet channelsToUse = [];\n\nif (isPriorityMatch) {\n    shouldNotify = true;\n    channelsToUse = enabledChannels;\n}\n\n// 5. 直接平铺返回对象，符合 2.x 干净输出标准\nreturn {\n    ...item,\n    should_notify: shouldNotify,\n    notification_channels: channelsToUse,\n    _metadata: {\n        ...item._metadata,\n        notification_check: {\n            passed: shouldNotify,\n            timestamp: new Date().toISOString(),\n            config_fallback_used: !configLoadedSuccessfully\n        }\n    }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2432,
+        -48
+      ],
+      "id": "10f29f10-7b55-4081-a547-4fe75173a803",
+      "name": "Check Notification Rules"
     },
     {
       "parameters": {
@@ -272,11 +531,12 @@
           "conditions": [
             {
               "id": "0952dcbf-950c-4a76-99a5-d4d4f620997b",
-              "leftValue": "={{ $('HTTP Request').item.json.priority }}",
+              "leftValue": "={{ $json.should_notify }}",
               "rightValue": "high",
               "operator": {
-                "type": "string",
-                "operation": "equals"
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
               }
             }
           ],
@@ -287,102 +547,321 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        816,
-        16
+        2656,
+        -48
       ],
       "id": "6c43bfc6-082f-40de-99a3-ef0e1e4d7d08",
-      "name": "If1"
+      "name": "Should Send Notification?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "79ecc9ee-bbc7-4963-9fe1-6ecaf9598dd3",
+              "leftValue": "={{ $json.notification_channels.includes('telegram') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2880,
+        -240
+      ],
+      "id": "4bf46d7c-973b-4158-90e9-4849a94718de",
+      "name": "Send to Telegram?"
     },
     {
       "parameters": {},
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        1024,
+        3104,
+        -144
+      ],
+      "id": "d712d799-58f8-4baf-9909-c1f6e326274b",
+      "name": "No Operation, do nothing2"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "79ecc9ee-bbc7-4963-9fe1-6ecaf9598dd3",
+              "leftValue": "={{ $json.notification_channels.includes('discord') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2880,
+        144
+      ],
+      "id": "8bd921b7-199e-441e-b782-4d323cb91113",
+      "name": "Send to Telegram?1"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        3104,
         240
       ],
-      "id": "5c22bbc8-fd40-4d7a-8bba-2c588e7c13df",
-      "name": "No Operation, do nothing1"
+      "id": "62cab24d-4469-4a6c-bbc0-d21d0bbc7275",
+      "name": "No Operation, do nothing3"
     },
     {
       "parameters": {
-        "authentication": "webhook",
-        "content": "=🚀 **High Priority Lead Detected!**\n\n**Title:** {{ $json.title }}\n**Category:** {{ $json.analysis_result.category_display.en }} ({{ $json.category_key }})\n**Sentiment:** {{ $json.sentiment }}\n\n**Summary (CN):**\n{{ $json.analysis_result.summary.en }}\n\n🔗 [Read Original]({{ $json.source_url }})",
-        "options": {
-          "username": "AI Analyst"
-        }
+        "url": "={{ $json.feed_url }}",
+        "options": {}
       },
-      "type": "n8n-nodes-base.discord",
-      "typeVersion": 2,
-      "position": [
-        1024,
-        16
-      ],
-      "id": "b15eb5a1-784a-4234-af58-865e51564927",
-      "name": "Discord",
-      "webhookId": "b11f5245-a0ee-49a6-a0ea-abcf380b8228",
-      "credentials": {
-        "discordWebhookApi": {
-          "id": "VziSjfoFuZUrjjKo",
-          "name": "Discord Webhook account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "chatId": "8611002456",
-        "text": "=🔔 *High Priority Alert*  *Title:* {{ $json.title }} *Category:* {{ $json.analysis_result.category_display.en }} *Priority:* {{ $json.priority }}  _Summary:_ {{ $json.analysis_result.summary.en }}  [View Source]({{ $json.source_url }})",
-        "additionalFields": {}
-      },
-      "type": "n8n-nodes-base.telegram",
+      "type": "n8n-nodes-base.rssFeedRead",
       "typeVersion": 1.2,
       "position": [
-        1024,
-        -176
+        192,
+        -48
       ],
-      "id": "a19d93d4-9fc0-4c3c-8f06-e02106de92fd",
-      "name": "Send a text message",
-      "webhookId": "2b104aaa-a941-43ee-ae26-17aafcaaefd6",
-      "alwaysOutputData": false,
-      "executeOnce": false,
-      "retryOnFail": false,
+      "id": "11129cdf-42ad-4a3c-bc12-b73fd7974f40",
+      "name": "Fetch RSS Data",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT EXISTS(SELECT 1 FROM smart_leads WHERE source_url = '{{ $('RSS Data Cleaner').item.json.url }}') as exists",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        640,
+        -48
+      ],
+      "id": "5eaede02-b1e9-402a-b418-aa4d19e3f0cf",
+      "name": "Check Duplicate",
       "credentials": {
-        "telegramApi": {
-          "id": "Tjm8swzkVf7eiW4d",
-          "name": "Telegram account"
+        "postgres": {
+          "id": "7WScnOVWInmsE9M6",
+          "name": "Postgres account"
         }
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rssSources = $('Get Active RSS Sources').all();\n\nconst jsonRules = $('Load Classification Rules').all();\n\nconst notificationSettings = $('Load Notification Settings').all().length > 0 \n  ? $('Load Notification Settings').all()\n  : $('Handle Notification Config Load Error').all();\n\nreturn rssSources.map(rss => {\n  return {\n    json: {\n      // 把当前这一个 RSS 源的属性（id, name, feed_url）直接铺平放在最外层\n      ...rss.json, \n      // 把全量的分类规则和通知配置，作为该 Item 内部的子字典/数组随行携带\n      global_rules: jsonRules.map(r => r.json),\n      global_notifications: notificationSettings.map(n => n.json)\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -32,
+        -48
+      ],
+      "id": "67178568-4fe3-4019-8c97-11ef8b1cf40d",
+      "name": "Merge Rss And Rules"
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -256,
+        -64
+      ],
+      "id": "20b67222-9a85-4fcd-acca-2bb30a2c8b0d",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. 安全抓取前驱节点的错误信息，防止极端情况下 $input.first() 报空指针\nlet errorMsg = 'Unknown error while loading database configuration';\n\ntry {\n    const firstInput = $input.first();\n    if (firstInput && firstInput.json && firstInput.json.error) {\n        errorMsg = firstInput.json.error.message || JSON.stringify(firstInput.json.error);\n    }\n} catch (e) {\n    console.log('Failed to parse upstream error:', e);\n}\n\nconsole.log('🚨 CRITICAL: Failed to load notification settings!', errorMsg);\n\n// 2. 💡 彻底去掉外部的 json: {} 包裹，改为直接平铺返回\n// 确保下游的 Check Notification Rules 节点能秒抓到这几个字段\nreturn {\n    _config_load_failed: true,\n    error_message: errorMsg,\n    fallback_settings: {\n        enabled_channels: [], // 关键：默认空数组，发生配置故障时不发任何通知，防止推流轰炸\n        notify_priorities: [],\n        rate_limit_per_hour: 0\n    }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -256,
+        -352
+      ],
+      "id": "87acfbf5-d5bf-4b03-a1e5-a293434f02ec",
+      "name": "Handle Notification Config Load Error"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. 安全获取错误项\nconst errorItem = $input.first();\nlet errorDetails = {\n    name: 'Unknown Error',\n    message: 'No message provided',\n    node: 'Unknown node',\n    timestamp: new Date().toISOString(),\n    workflow_id: 'N/A'\n};\n\n// 2. 🧠 智能解析错误内容，防止 error 是纯字符串时引发崩溃\nif (errorItem && errorItem.json && errorItem.json.error) {\n    const upstreamError = errorItem.json.error;\n    \n    if (typeof upstreamError === 'string') {\n        errorDetails.message = upstreamError;\n    } else if (typeof upstreamError === 'object') {\n        errorDetails.name = upstreamError.name || 'Unknown';\n        errorDetails.message = upstreamError.message || 'No message';\n        errorDetails.node = upstreamError.nodeName || 'Unknown node';\n        errorDetails.workflow_id = upstreamError.workflowId || 'N/A';\n    }\n}\n\n// 3. 💡 彻底去掉外部的 json: {} 包裹，直接平铺返回\nreturn {\n    error_logged: true,\n    error_details: errorDetails,\n    _metadata: {\n        processing_stage: 'global_error_logged',\n        severity: 'low'\n    }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -256,
+        240
+      ],
+      "id": "5d6ca562-b3d6-4952-b9b3-7c3fa92b6890",
+      "name": "Handle ClassificationConfig Load Error"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "607f9ff3-ec99-4258-af76-5adb7cd3a934",
+              "name": "title",
+              "value": "={{ $json.title }}",
+              "type": "string"
+            },
+            {
+              "id": "0ab936b7-dde5-4a9f-81af-50e317201333",
+              "name": "url",
+              "value": "={{ $json.link }}",
+              "type": "string"
+            },
+            {
+              "id": "ca36cfc5-cd18-45c6-9283-6ee745593bf0",
+              "name": "guid",
+              "value": "={{ $json.guid }}",
+              "type": "string"
+            },
+            {
+              "id": "48b08912-25e2-491c-837b-b2effa927361",
+              "name": "content",
+              "value": "={{ $json.contentSnippet || $json.content }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        416,
+        -48
+      ],
+      "id": "893add88-fc4e-451d-bd9a-5a488407f058",
+      "name": "RSS Data Cleaner",
+      "notesInFlow": true,
+      "notes": "rss data cleaner.\nOUTPUT:title,url,guid,content"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cc1530bb-5a4e-414c-8f38-aa67cf0b95e5",
+              "name": "title",
+              "value": "={{ $('RSS Data Cleaner').item.json.title }}",
+              "type": "string"
+            },
+            {
+              "id": "4be445ea-9247-47bb-9a4f-c4951931b141",
+              "name": "url",
+              "value": "={{ $('RSS Data Cleaner').item.json.url }}",
+              "type": "string"
+            },
+            {
+              "id": "9a3b1aa2-2e05-4ae4-8f2a-b7b37111e75e",
+              "name": "guid",
+              "value": "={{ $('RSS Data Cleaner').item.json.guid }}",
+              "type": "string"
+            },
+            {
+              "id": "f9e0950c-d364-457b-b26b-99a963a88e79",
+              "name": "content",
+              "value": "={{ $('RSS Data Cleaner').item.json.content }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1312,
+        -48
+      ],
+      "id": "3f04fdc4-362f-43c2-a066-37c10b3543bb",
+      "name": "AI Data Merge",
+      "notesInFlow": true,
+      "notes": "Merge news & ai data"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d1ee6e4e-d358-417f-b932-4dba8e59ed81",
+              "name": "enviroment",
+              "value": "development",
+              "type": "string"
+            },
+            {
+              "id": "17b2b13f-799d-4e75-bfbb-146d99109c7e",
+              "name": "telegram_chat_id",
+              "value": "8611002456",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -704,
+        -48
+      ],
+      "id": "ae48cb23-6d80-485a-a374-44fd80b66fb0",
+      "name": "Global Config"
     }
   ],
   "pinData": {},
   "connections": {
-    "RSS Feed Trigger": {
-      "main": [
-        [
-          {
-            "node": "Execute a SQL query",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "HTTP Request": {
       "main": [
         [
           {
-            "node": "Insert rows in a table",
+            "node": "AI Data Merge",
             "type": "main",
             "index": 0
           }
-        ]
-      ]
-    },
-    "Execute a SQL query": {
-      "main": [
+        ],
         [
           {
-            "node": "If",
+            "node": "Handle AI Failure",
             "type": "main",
             "index": 0
           }
@@ -411,23 +890,163 @@
       "main": [
         [
           {
-            "node": "If1",
+            "node": "Add Processing Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle DB Error",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "If1": {
+    "Validate & Transform Data": {
       "main": [
         [
           {
-            "node": "Send a text message",
+            "node": "Apply Classification Rules",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle AI Failure": {
+      "main": [
+        [
+          {
+            "node": "Apply Classification Rules",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle DB Error": {
+      "main": [
+        []
+      ]
+    },
+    "Add Processing Metadata": {
+      "main": [
+        [
+          {
+            "node": "Check Notification Rules",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Telegram": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Log Telegram Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Discord Team": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Log Discord Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Active RSS Sources": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Global Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Operation, do nothing": {
+      "main": [
+        []
+      ]
+    },
+    "Log Telegram Error": {
+      "main": [
+        []
+      ]
+    },
+    "Log Discord Error": {
+      "main": [
+        []
+      ]
+    },
+    "No Operation, do nothing1": {
+      "main": [
+        []
+      ]
+    },
+    "Load Classification Rules": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ],
+        [
+          {
+            "node": "Handle ClassificationConfig Load Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Classification Rules": {
+      "main": [
+        [
+          {
+            "node": "Insert rows in a table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Send Notification?": {
+      "main": [
+        [
+          {
+            "node": "Send to Telegram?",
             "type": "main",
             "index": 0
           },
           {
-            "node": "Discord",
+            "node": "Send to Telegram?1",
             "type": "main",
             "index": 0
           }
@@ -441,18 +1060,174 @@
         ]
       ]
     },
-    "Send a text message": {
+    "Check Notification Rules": {
+      "main": [
+        [
+          {
+            "node": "Should Send Notification?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send to Telegram?": {
+      "main": [
+        [
+          {
+            "node": "Notify Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send to Telegram?1": {
+      "main": [
+        [
+          {
+            "node": "Notify Discord Team",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Notification Settings": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Notification Config Load Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch RSS Data": {
+      "main": [
+        [
+          {
+            "node": "RSS Data Cleaner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Duplicate": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Rss And Rules": {
+      "main": [
+        [
+          {
+            "node": "Fetch RSS Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Merge Rss And Rules",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle ClassificationConfig Load Error": {
       "main": [
         []
+      ]
+    },
+    "RSS Data Cleaner": {
+      "main": [
+        [
+          {
+            "node": "Check Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Data Merge": {
+      "main": [
+        [
+          {
+            "node": "Validate & Transform Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Global Config": {
+      "main": [
+        [
+          {
+            "node": "Get Active RSS Sources",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Load Notification Settings",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Load Classification Rules",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
   "active": false,
   "settings": {
     "executionOrder": "v1",
-    "binaryMode": "separate"
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "1E0AgvIimMn0deX7",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
   },
-  "versionId": "738e795b-31b5-4d1a-888d-bf4148eb9c39",
+  "versionId": "2ec311f9-0926-4ab2-87ce-736772adebee",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "3d2acfc32533257c8703bb7d95952f32c36f321e22eb7e96d47ff28ef5b61f62"
