@@ -91,7 +91,7 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - OTEL_SERVICE_NAME=n8n-rss-ai-service
       - OTEL_SERVICE_VERSION=v2.0
-      - OTEL_RESOURCE_ATTRIBUTES=deployment.environment=development,service.name=n8n-rss-ai-service,host.name=my-server-01,gen_ai.system=deepseek,tags=rss-filter,langfuse.tags=rss-filter
+      - OTEL_RESOURCE_ATTRIBUTES=deployment.environment=${ENVIRONMENT},service.name=n8n-rss-ai-service,host.name=my-server-01,gen_ai.system=deepseek,tags=rss-filter,langfuse.tags=rss-filter
     ports:
       - "8001:8001"
     depends_on:
