@@ -1,6 +1,9 @@
 import hashlib
 import json
-from typing import Any
+from typing import Any, Mapping, Optional
+
+from opentelemetry import context
+from opentelemetry.propagate import extract
 
 LLM_CONTENT_LIMIT = 3000
 METADATA_PREVIEW_LIMIT = 200
@@ -95,3 +98,42 @@ def classify_exception(exc: Exception) -> tuple[str, str, int]:
     if "status_code" in dir(exc):
         return "provider_error", "llm_call", 502
     return "internal_error", "unknown", 500
+
+
+def _headers_to_carrier(headers: Mapping[str, str]) -> dict[str, str]:
+    return {k.lower(): v for k, v in headers.items()}
+
+
+def build_trace_context_from_headers(headers: Mapping[str, str]) -> Optional[dict[str, str]]:
+    """Parse W3C traceparent into Langfuse trace_context for distributed tracing."""
+    traceparent = _headers_to_carrier(headers).get("traceparent")
+    if not traceparent:
+        return None
+
+    parts = traceparent.split("-")
+    if len(parts) != 4 or parts[0] != "00":
+        return None
+
+    trace_id, parent_span_id, flags = parts[1], parts[2], parts[3]
+    if len(trace_id) != 32 or len(parent_span_id) != 16:
+        return None
+    if flags not in {"00", "01"}:
+        return None
+
+    return {
+        "trace_id": trace_id.lower(),
+        "parent_span_id": parent_span_id.lower(),
+    }
+
+
+def attach_incoming_trace_context(headers: Mapping[str, str]):
+    """Attach upstream OTEL context so opentelemetry-instrument spans stay linked."""
+    carrier = _headers_to_carrier(headers)
+    if "traceparent" not in carrier:
+        return None
+    return context.attach(extract(carrier))
+
+
+def detach_trace_context(token) -> None:
+    if token is not None:
+        context.detach(token)

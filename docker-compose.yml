@@ -47,6 +47,7 @@ services:
       - N8N_OTEL_TRACES_PRODUCTION_ONLY=false
       # 🌟 强制使用 Batch 处理器，防止在流量小的时候数据积压在内存里不发
       - N8N_OTEL_TRACE_PROCESSOR=batch
+      - N8N_OTEL_TRACES_INJECT_OUTBOUND=true
       # 🌟 强制日志级别，确保报错能露出来
       - N8N_LOG_LEVEL=debug
       - N8N_DIAGNOSTICS_ENABLED=false

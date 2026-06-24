@@ -1,7 +1,7 @@
 import os
 import json
 import logging
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, ValidationError
 from langfuse import get_client, propagate_attributes
 from langfuse.openai import AsyncOpenAI
@@ -9,12 +9,15 @@ from typing import List, Optional
 import httpx
 
 from observability import (
+    attach_incoming_trace_context,
     build_failed_trace_output,
     build_propagate_metadata,
+    build_trace_context_from_headers,
     build_trace_input,
     build_trace_output,
     classify_exception,
     content_hash,
+    detach_trace_context,
     preview,
     truncate_for_llm,
 )
@@ -71,6 +74,15 @@ client = AsyncOpenAI(
 app = FastAPI()
 
 
+@app.middleware("http")
+async def propagate_w3c_trace_context(request: Request, call_next):
+    token = attach_incoming_trace_context(request.headers)
+    try:
+        return await call_next(request)
+    finally:
+        detach_trace_context(token)
+
+
 class ContentItem(BaseModel):
     title: str
     content: str
@@ -99,21 +111,36 @@ def _mark_generation_error(message: str) -> None:
 
 
 @app.post("/analyze", response_model=AnalysisResult)
-async def analyze_content(item: ContentItem):
+async def analyze_content(item: ContentItem, request: Request):
     logger.info(f"Received analysis request for URL: {item.source_url}")
 
     content_for_llm, truncated = truncate_for_llm(item.content)
     session_key = item.source_url or item.title
+    upstream_trace_context = build_trace_context_from_headers(request.headers)
+    if upstream_trace_context:
+        logger.info(
+            "Continuing upstream trace_id=%s parent_span_id=%s",
+            upstream_trace_context["trace_id"],
+            upstream_trace_context["parent_span_id"],
+        )
+    else:
+        logger.warning(
+            "No traceparent header on /analyze; Langfuse trace will not link to Jaeger workflow trace"
+        )
 
     with langfuse.start_as_current_observation(
         as_type="span",
         name="rss-article-analysis",
+        trace_context=upstream_trace_context,
         input=build_trace_input(
             source_url=item.source_url,
             title=item.title,
             content=item.content,
         ),
     ) as root_span:
+        linked_trace_id = langfuse.get_current_trace_id()
+        if linked_trace_id:
+            logger.info(f"Langfuse trace_id={linked_trace_id}")
         with propagate_attributes(
             tags=["rss-filter"],
             version=SERVICE_VERSION,
