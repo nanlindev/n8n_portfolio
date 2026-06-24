@@ -14,7 +14,7 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -65,6 +65,12 @@ services:
 
   # Python AI 处理服务
   n8n_python_ai:
+    build:
+      context: ./python-service
+      dockerfile: Dockerfile
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
     image: ghcr.io/nanlindev/n8n_portfolio/python-ai-service:latest
     restart: always
     env_file:
@@ -74,18 +80,17 @@ services:
       - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
       - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-v4-flash}
 
-      # --- 监控配置 ---
+      # --- Langfuse SDK（LLM 观测主路径） ---
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+
+      # --- OTEL（HTTP 基础设施 trace，LLM 由 Langfuse SDK 负责） ---
       - OTEL_TRACES_EXPORTER=otlp
       - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - OTEL_SERVICE_NAME=n8n-rss-ai-service
       - OTEL_SERVICE_VERSION=v2.0
-
-      # --- LLM 内容捕获（让 Input / Output 完全捕获文本） ---
-      - OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true
-      - OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT=true
-
-      # --- 核心：多属性合并为唯一一行，用逗号严格隔开（解决覆盖问题） ---
       - OTEL_RESOURCE_ATTRIBUTES=deployment.environment=development,service.name=n8n-rss-ai-service,host.name=my-server-01,gen_ai.system=deepseek,tags=rss-filter,langfuse.tags=rss-filter
     ports:
       - "8001:8001"
