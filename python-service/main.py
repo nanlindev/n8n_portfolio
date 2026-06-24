@@ -31,13 +31,20 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
 DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
 SERVICE_VERSION = os.getenv("OTEL_SERVICE_VERSION", "v2.0")
+ENVIRONMENT = (
+    os.getenv("ENVIRONMENT")
+    or os.getenv("LANGFUSE_TRACING_ENVIRONMENT")
+    or "development"
+)
+# Langfuse SDK v4 只认 LANGFUSE_TRACING_ENVIRONMENT，不认 OTEL deployment.environment
+os.environ.setdefault("LANGFUSE_TRACING_ENVIRONMENT", ENVIRONMENT)
 
 if not DEEPSEEK_API_KEY:
     raise ValueError("DEEPSEEK_API_KEY environment variable is not set")
 
 langfuse = get_client()
 LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "not-set")
-logger.info(f"Langfuse host: {LANGFUSE_HOST}")
+logger.info(f"Langfuse host: {LANGFUSE_HOST}, environment: {ENVIRONMENT}")
 try:
     langfuse.auth_check()
     logger.info("Langfuse auth_check passed")

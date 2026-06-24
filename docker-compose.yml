@@ -84,6 +84,8 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - LANGFUSE_TRACING_ENVIRONMENT=${ENVIRONMENT:-development}
 
       # --- OTEL（HTTP 基础设施 trace，LLM 由 Langfuse SDK 负责） ---
       - OTEL_TRACES_EXPORTER=otlp
@@ -91,7 +93,7 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - OTEL_SERVICE_NAME=n8n-rss-ai-service
       - OTEL_SERVICE_VERSION=v2.0
-      - OTEL_RESOURCE_ATTRIBUTES=deployment.environment=${ENVIRONMENT},service.name=n8n-rss-ai-service,host.name=my-server-01,gen_ai.system=deepseek,tags=rss-filter,langfuse.tags=rss-filter
+      - OTEL_RESOURCE_ATTRIBUTES=deployment.environment=${ENVIRONMENT:-development},service.name=n8n-rss-ai-service,host.name=my-server-01,gen_ai.system=deepseek,tags=rss-filter,langfuse.tags=rss-filter
     ports:
       - "8001:8001"
     depends_on:
