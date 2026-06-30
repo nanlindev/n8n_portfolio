@@ -1,3 +1,4 @@
+# Paths are relative to this file (docker/compose.yml).
 include:
   - path: ../../platform-n8n/docker/templates/networks.yml
 

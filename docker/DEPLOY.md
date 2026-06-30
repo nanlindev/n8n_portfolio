@@ -2,10 +2,21 @@
 
 Deploy the RSS Python sidecar. Shared n8n runs in `platform-n8n`.
 
+## Networks
+
+Sidecar joins **two** external networks (via platform template):
+
+| Network | Purpose |
+|---------|---------|
+| `n8n_platform` | Shared n8n calls `http://rss_python_ai:8001/analyze` |
+| `proxy_network` | OTEL → `otel-collector`, Langfuse → `langfuse-web` |
+
+Run `../platform-n8n/scripts/ensure-networks.sh` before first deploy.
+
 ## Prerequisites
 
-- `platform-n8n` running (`docker compose -f docker/compose.yml up -d`)
-- `n8n_platform` network exists (`../platform-n8n/scripts/ensure-networks.sh`)
+- `platform-n8n` running
+- Project root `.env` with `DEEPSEEK_*` and `LANGFUSE_*` set
 - OBS stacks on `proxy_network` (optional)
 
 ## Local
@@ -13,7 +24,7 @@ Deploy the RSS Python sidecar. Shared n8n runs in `platform-n8n`.
 ```bash
 cd /home/lotey/lindev/n8n_portfolio
 cp docker/.env.example .env   # or copy from root .env.example
-docker compose -f docker/compose.yml up -d --build
+docker compose -f docker/compose.yml --env-file .env up -d --build
 ```
 
 Sidecar: http://localhost:8001/health
@@ -30,7 +41,10 @@ Manual:
 cd /home/deploy/projects/n8n_portfolio
 ../platform-n8n/scripts/ensure-networks.sh
 docker pull ghcr.io/nanlindev/n8n_portfolio/python-ai-service:latest
-docker compose -f docker/compose.yml up -d
+docker compose -f docker/compose.yml --env-file .env up -d
+
+# Or from platform-n8n:
+# ../platform-n8n/scripts/deploy-sidecars.sh
 ```
 
 ## n8n workflow
