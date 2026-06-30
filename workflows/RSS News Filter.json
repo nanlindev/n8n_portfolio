@@ -4,7 +4,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://n8n_python_ai:8001/analyze",
+        "url": "http://rss_python_ai:8001/analyze",
         "sendBody": true,
         "bodyParameters": {
           "parameters": [

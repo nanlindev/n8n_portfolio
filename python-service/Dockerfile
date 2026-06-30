@@ -1,4 +1,5 @@
 FROM python:3.12-slim
+# Matches platform-n8n/docker/templates/Dockerfile.python-sidecar
 
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
