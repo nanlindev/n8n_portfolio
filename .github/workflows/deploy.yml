@@ -16,6 +16,7 @@ jobs:
       python_image_name: ghcr.io/nanlindev/n8n_portfolio/python-ai-service
       deploy_path: /home/deploy/projects/n8n_portfolio
       compose_file: docker/compose.yml
+      compose_service: rss_python_ai
       build_context: ./python-service
       dockerfile: python-service/Dockerfile
     secrets:
