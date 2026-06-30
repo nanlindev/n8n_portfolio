@@ -7,6 +7,10 @@ on:
 
 jobs:
   deploy:
+    permissions:
+      contents: read
+      packages: write
+
     uses: nanlindev/platform-n8n/.github/workflows/reusable-deploy-python.yml@main
     with:
       python_image_name: ghcr.io/nanlindev/n8n_portfolio/python-ai-service
@@ -17,4 +21,3 @@ jobs:
     secrets:
       SSH_HOST: ${{ secrets.SSH_HOST }}
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
